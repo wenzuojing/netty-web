@@ -10,6 +10,7 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.util.CharsetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,8 +98,13 @@ public class WebServer {
 
     private void process(ChannelHandlerContext ctx, FullHttpRequest httpRequest) {
 
-        FullHttpResponse httpResponse = new DefaultFullHttpResponse(HTTP_1_1, OK);
+        HttpResponse httpResponse = new DefaultHttpResponse(HTTP_1_1, OK);
         httpResponse.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain");
+        boolean keepAlive = HttpHeaders.isKeepAlive(httpRequest);
+        if (keepAlive) {
+            httpResponse.headers().set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
+        }
+
 
         String method = httpRequest.getMethod().name();
 
@@ -118,7 +124,7 @@ public class WebServer {
         }
 
         if (!response.hasFinish()) {
-            response.finish(HttpHeaders.isKeepAlive(httpRequest));
+            response.finish(keepAlive);
         }
 
         log.info(request + " " + response);
@@ -150,7 +156,7 @@ public class WebServer {
             }
             p.addLast(new HttpServerCodec());
             p.addLast(new HttpObjectAggregator(65536));
-            //p.addLast(new ChunkedWriteHandler());
+            p.addLast(new ChunkedWriteHandler());
             p.addLast(new HttpContentCompressor());
             p.addLast(new ServerHandler());
         }

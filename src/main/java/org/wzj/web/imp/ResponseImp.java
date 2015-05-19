@@ -16,19 +16,22 @@
  */
 package org.wzj.web.imp;
 
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.channel.DefaultFileRegion;
 import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.LastHttpContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wzj.web.Response;
 import org.wzj.web.WebException;
 
-import java.io.*;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.RandomAccessFile;
 
 import static io.netty.handler.codec.http.HttpHeaders.Names.CONNECTION;
 
@@ -41,14 +44,13 @@ public class ResponseImp implements Response {
     private static final Logger log = LoggerFactory.getLogger(ResponseImp.class);
 
     private ChannelHandlerContext ctx;
-    private FullHttpResponse response;
+    private HttpResponse response;
 
     private volatile boolean finish = false;
+    private volatile boolean writeHeader = false;
 
-    private volatile long contentLength = -1;
 
-
-    public ResponseImp(ChannelHandlerContext ctx, FullHttpResponse response) {
+    public ResponseImp(ChannelHandlerContext ctx, HttpResponse response) {
         this.ctx = ctx;
         this.response = response;
     }
@@ -65,66 +67,51 @@ public class ResponseImp implements Response {
 
     @Override
     public void setContentLength(long contentLength) {
-        this.contentLength = contentLength;
+        response.headers().set(HttpHeaders.Names.CONTENT_LENGTH, contentLength);
     }
 
 
     @Override
     public void writeBody(String body) {
-        checkStatus();
-        response.content().writeBytes(body.getBytes());
+        writeBody0(Unpooled.wrappedBuffer(body.getBytes()));
     }
 
     @Override
     public void writeBody(byte[] body) {
-        checkStatus();
-        response.content().writeBytes(body);
+        writeBody0(Unpooled.wrappedBuffer(body));
     }
 
     @Override
-    public void writeFile(File file)  {
-        checkStatus();
-
-        FileInputStream fileInputStream = null ;
+    public void writeFile(File file) {
+        RandomAccessFile raf;
         try {
-            fileInputStream = new FileInputStream(file) ;
+            raf = new RandomAccessFile(file, "r");
         } catch (FileNotFoundException e) {
-            throw new WebException("File not found." , e ) ;
+            throw new WebException("File not found.", e);
         }
 
+        long fileLength = file.length();
 
-        byte[] buf = new byte[1024] ;
-        BufferedInputStream bufInput = null ;
-        try {
-            bufInput = new BufferedInputStream( fileInputStream , 1024) ;
-            while (true){
-                int reads = bufInput.read(buf) ;
-                if(reads == -1 ){
-                    break;
-                }
-                response.content().writeBytes(buf,0 ,reads ) ;
-            }
-        } catch (IOException e) {
-            throw new WebException("Read file fail.", e);
-        }finally {
+        writeBody0(new DefaultFileRegion(raf.getChannel(), 0, fileLength));
 
-            if(bufInput != null ){
-                try {
-                    bufInput.close();
-                } catch (IOException e) {
-                    //
-                }
-            }
+    }
 
-            if(fileInputStream != null ){
-                try {
-                    fileInputStream.close();
-                } catch (IOException e) {
-                    //
-                }
-            }
-
+    private synchronized void writeBody0(Object body) {
+        checkStatus();
+        if (!writeHeader) {
+            writeHeader();
         }
+
+        ctx.write(body);
+    }
+
+    private void writeHeader() {
+        writeHeader = true;
+        if(!response.headers().contains(HttpHeaders.Names.CONTENT_LENGTH)){
+            response.headers().set(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED );
+        }
+
+        ctx.write(response);
     }
 
     @Override
@@ -160,15 +147,12 @@ public class ResponseImp implements Response {
 
     public void finish(boolean keepAlive) {
         finish = true;
-        response.headers().set(HttpHeaders.Names.CONTENT_LENGTH, contentLength == -1 ? response.content().readableBytes() : contentLength);
         if (!keepAlive) {
-            ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+            ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
         } else {
             response.headers().set(CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
-            ctx.writeAndFlush(response);
+            ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
         }
-
-
     }
 
 

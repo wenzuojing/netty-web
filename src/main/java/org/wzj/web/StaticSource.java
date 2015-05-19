@@ -85,7 +85,7 @@ public class StaticSource {
         setDateAndCacheHeaders(response, file);
 
 
-        response.writeFile(file) ;
+        response.writeFile(file);
 
 
     }
