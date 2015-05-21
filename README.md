@@ -1,6 +1,6 @@
 # netty-web
 
-netty-web在netty4的基础上做了轻量级封装及增强，提供方便快发web应用，特适合用来开发api类应用。
+netty-web在netty4的基础上做了轻量级封装及增强，提供方便快捷开发web应用，特别适合用来开发api类应用。
 
 ## features
 
