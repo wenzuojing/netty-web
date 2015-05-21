@@ -1,5 +1,6 @@
 package org.wzj.web.imp;
 
+import org.wzj.web.FileItem;
 import org.wzj.web.Request;
 
 import java.util.List;
@@ -85,6 +86,11 @@ public class RequestFacade implements Request {
     @Override
     public Set<String> getHeaders() {
         return request.getHeaders();
+    }
+
+    @Override
+    public FileItem getFile(String name) {
+        return request.getFile(name);
     }
 
 }

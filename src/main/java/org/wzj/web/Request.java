@@ -60,8 +60,9 @@ public interface Request {
 
     String getHeader(String header);
 
-
     Set<String> getHeaders();
+
+    FileItem getFile(String name);
 
 
 }

@@ -7,8 +7,6 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.util.CharsetUtil;
@@ -70,7 +68,7 @@ public class WebServer {
                 b.option(ChannelOption.SO_BACKLOG, 1024);
                 b.group(bossGroup, workerGroup)
                         .channel(NioServerSocketChannel.class)
-                        .handler(new LoggingHandler(LogLevel.INFO))
+                                //.handler(new LoggingHandler(LogLevel.INFO))
                         .childHandler(new ServerHandlerInitializer(null));
 
                 Channel ch = b.bind(this.serverConfig.getPort()).sync().channel();
@@ -178,7 +176,12 @@ public class WebServer {
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             log.error("An exception occurs, close the connect.", cause);
-            ctx.close();
+            if (ctx.channel().isActive()) {//try send 500
+                ctx.writeAndFlush(new DefaultFullHttpResponse(HTTP_1_1, HttpResponseStatus.INTERNAL_SERVER_ERROR)).addListener(ChannelFutureListener.CLOSE);
+            } else {
+                ctx.close();
+            }
+
         }
 
         private void sendError(ChannelHandlerContext ctx, HttpResponseStatus status) {

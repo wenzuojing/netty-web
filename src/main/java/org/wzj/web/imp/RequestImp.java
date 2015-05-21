@@ -23,6 +23,7 @@ import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.wzj.web.FileItem;
 import org.wzj.web.PostFormDataDecoder;
 import org.wzj.web.Request;
 import org.wzj.web.WebException;
@@ -48,6 +49,7 @@ public class RequestImp implements Request {
     private Map<String, List<String>> queryStringParams;
 
     private Map<String, List<String>> params;
+    private Map<String, FileItem> files;
 
     private byte[] bodyBytes = null;
     private String bodyString = null;
@@ -84,12 +86,21 @@ public class RequestImp implements Request {
         return values == null || values.size() == 0 ? null : values.get(0);
     }
 
+    @Override
+    public FileItem getFile(String name) {
+        if (params == null) {
+            readParams();
+        }
+
+        return files.get(name);
+    }
 
     private void readParams() {
         PostFormDataDecoder postFormDataDecoder = null;
         try {
             postFormDataDecoder = new PostFormDataDecoder(httpRequest);
             params = postFormDataDecoder.getParams();
+            files = postFormDataDecoder.getFiles();
         } catch (Exception e) {
             throw new WebException("Exception when decode post form data.", e);
         } finally {
@@ -159,7 +170,9 @@ public class RequestImp implements Request {
             ByteBuf content = httpRequest.content();
             int readableBytes = content.readableBytes();
             bodyBytes = new byte[readableBytes];
+            content.readBytes(bodyBytes);
             bodyString = new String(bodyBytes);
+
         } catch (Exception e) {
             throw new WebException("Exception when reading body", e);
         }

@@ -46,9 +46,9 @@ public class ResponseImp implements Response {
     private ChannelHandlerContext ctx;
     private HttpResponse response;
 
-    private volatile boolean finish = false;
-    private volatile boolean writeHeader = false;
-
+    private boolean finish = false;
+    private boolean writeHeader = false;
+    private boolean hasBodyData = false;
 
     public ResponseImp(ChannelHandlerContext ctx, HttpResponse response) {
         this.ctx = ctx;
@@ -98,19 +98,22 @@ public class ResponseImp implements Response {
 
     private synchronized void writeBody0(Object body) {
         checkStatus();
+        hasBodyData = true;
         if (!writeHeader) {
             writeHeader();
         }
-
         ctx.write(body);
     }
 
     private void writeHeader() {
         writeHeader = true;
-        if(!response.headers().contains(HttpHeaders.Names.CONTENT_LENGTH)){
-            response.headers().set(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED );
+        if (!response.headers().contains(HttpHeaders.Names.CONTENT_LENGTH)) {
+            if (hasBodyData) {
+                response.headers().set(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED);
+            } else {
+                setContentLength(0);
+            }
         }
-
         ctx.write(response);
     }
 
@@ -142,10 +145,16 @@ public class ResponseImp implements Response {
     public void sendError(int code, String reasonPhrase) {
         setContentType("text/plain; charset=UTF-8");
         setStatus(code, reasonPhrase);
+        setHeader(HttpHeaders.Names.CONNECTION, "close");
         finish(false);
     }
 
-    public void finish(boolean keepAlive) {
+    public synchronized void finish(boolean keepAlive) {
+
+        if (!writeHeader) {
+            writeHeader();
+        }
+
         finish = true;
         if (!keepAlive) {
             ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);

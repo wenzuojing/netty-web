@@ -31,8 +31,6 @@ public class StaticSource {
 
     public static void servingStaticFile(WebContext context) throws ParseException {
 
-        System.out.println("hi");
-
         Request request = context.getRequest();
         Response response = context.getResponse();
 

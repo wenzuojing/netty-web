@@ -3,7 +3,6 @@ package org.wzj.web;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.multipart.*;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -86,7 +85,16 @@ public class PostFormDataDecoder {
             FileUpload fileUpload = (FileUpload) data;
             String name = fileUpload.getName();
 
-            FileItem fileItem = new FileItem(fileUpload.getFile(), fileUpload.getFilename());
+            FileItem fileItem = new FileItem(fileUpload.getFilename());
+
+            if (fileUpload.isInMemory()) {
+                fileItem.setInMemery(true);
+                fileItem.setData(fileUpload.get());
+            } else {
+                fileItem.setInMemery(false);
+                fileItem.setFile(fileUpload.getFile());
+            }
+
             files.put(name, fileItem);
         }
 
@@ -104,32 +112,6 @@ public class PostFormDataDecoder {
 
     public Map<String, FileItem> getFiles() {
         return files;
-    }
-
-    public static class FileItem {
-        private File file;
-        private String fileName;
-
-        public FileItem(File file, String fileName) {
-            this.file = file;
-            this.fileName = fileName;
-        }
-
-        public File getFile() {
-            return file;
-        }
-
-        public void setFile(File file) {
-            this.file = file;
-        }
-
-        public String getFileName() {
-            return fileName;
-        }
-
-        public void setFileName(String fileName) {
-            this.fileName = fileName;
-        }
     }
 
 

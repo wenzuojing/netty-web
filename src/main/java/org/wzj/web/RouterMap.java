@@ -2,12 +2,15 @@ package org.wzj.web;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.wzj.web.annotaction.BodyValue;
 import org.wzj.web.annotaction.Controller;
 import org.wzj.web.annotaction.ParamValue;
 import org.wzj.web.annotaction.PathValue;
 import org.wzj.web.imp.DefaultObjectFactory;
 import org.wzj.web.util.ClassLoaderUtils;
 import org.wzj.web.util.ClassUtils;
+import org.wzj.web.util.StringUtils;
+import org.wzj.web.util.TypeConvertUtils;
 
 import java.io.IOException;
 import java.lang.annotation.Annotation;
@@ -27,10 +30,13 @@ public class RouterMap {
 
     private static Logger log = LoggerFactory.getLogger(RouterMap.class);
 
+    private static final Pattern METHOD_SIGNATURE = Pattern.compile("([^\\(\\)]+(\\(.*\\))?)");
 
-    private static Pattern METHOD_SIGNATURE = Pattern.compile("([^\\(\\)]+(\\(.*\\))?)");
+    private static final Pattern KEY_PATTERN = Pattern.compile("\\{(\\w+)(:(.*?))?\\}");
 
-    private static Pattern KEY_PATTERN = Pattern.compile("\\{(\\w+)(:(.*?))?\\}");
+    private static final Pattern REGEX = Pattern.compile("(\\{\\d+(,\\d+)?\\})");
+
+    private static final Pattern REGEX_FLAG = Pattern.compile("#REGEX_FLAG#");
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private Map<String, List<Router>> map = new HashMap<String, List<Router>>();
@@ -87,33 +93,18 @@ public class RouterMap {
         router.httpMethod = httpMethod;
         router.handleMethod = handleMethod;
 
-        Matcher matcher = KEY_PATTERN.matcher(route);
-        StringBuilder sb = new StringBuilder(route.length());
-
-        int startIndex = 0;
-
-        Set<String> keys = new HashSet<String>();
-        while (matcher.find()) {
-            sb.append(route.substring(startIndex, matcher.start()));
-            startIndex = matcher.end();
-            keys.add(matcher.group(1));
-            sb.append("(?<").append(matcher.group(1)).append(">").append(matcher.group(3) == null ? "[^/]+" : matcher.group(3)).append(")");
-        }
-
-        if (startIndex != route.length() - 1) {
-            sb.append(route.substring(startIndex));
-        }
-
-        router.keys = keys;
+        RouteParser routeParser = new RouteParser(route).parse();
+        router.keys = routeParser.keys;
 
         try {
-            router.p_route = Pattern.compile(sb.toString());
+            router.p_route = Pattern.compile(routeParser.routeRegex);
         } catch (PatternSyntaxException e) {
             throw new WebException("Error in route  : " + route, e);
         }
 
         log.info("[add router]" + router);
 
+        validateRouter(router);
 
         rwLock.writeLock().lock();
         try {
@@ -127,6 +118,28 @@ public class RouterMap {
             routers.add(router);
         } finally {
             rwLock.writeLock().unlock();
+        }
+    }
+
+    private void validateRouter(Router router) {
+        //验证参数annotation合法性
+        Annotation[][] parameterAnnotations = router.handleMethod.getParameterAnnotations();
+        for (int i = 0; i < parameterAnnotations.length; i++) {
+            Annotation[] annotations = parameterAnnotations[i];
+            if (annotations.length == 1) {
+                if (annotations[0] instanceof PathValue) {
+                    String key = ((PathValue) annotations[0]).value();
+                    if (!router.keys.contains(key)) {
+                        throw new WebException(router.route + " does not contains " + key + " key.");
+                    }
+                } else if (annotations[0] instanceof ParamValue) {
+                    //
+                } else if (annotations[0] instanceof BodyValue) {
+                    if (!router.handleMethod.getParameterTypes()[i].isAssignableFrom(byte[].class)) {
+                        throw new WebException("The BodyValue annotation of " + router.handleMethod + " must be place on byte[] type.");
+                    }
+                }
+            }
         }
 
     }
@@ -149,46 +162,24 @@ public class RouterMap {
 
         boolean found = false;
         Router router = null;
-        Matcher matcher = null;
+        Matcher routerMatcher = null;
 
 
         //find router
         for (int i = 0, len = routers.size(); i < len; i++) {
             router = routers.get(i);
-            matcher = router.p_route.matcher(uri);
-            if (matcher.matches()) {
+            routerMatcher = router.p_route.matcher(uri);
+            if (routerMatcher.matches()) {
                 found = true;
                 break;
             }
-
         }
 
         if (!found) {
             return false;
         }
 
-        Class<?>[] parameterTypes = router.handleMethod.getParameterTypes();
-        Annotation[][] parameterAnnotations = router.handleMethod.getParameterAnnotations();
-        Object[] args = new Object[parameterTypes.length];
-
-        for (int i = 0; i < parameterTypes.length; i++) {
-            Class<?> clazz = parameterTypes[i];
-            Object value = null;
-            if (clazz.isAssignableFrom(WebContext.class)) {
-                value = webContext;
-            } else {
-                Annotation[] annotations = parameterAnnotations[i];
-                if (annotations.length == 1) {
-                    if (annotations[0] instanceof PathValue) {
-                        value = matcher.group(((PathValue) annotations[0]).value());
-                    } else if (annotations[0] instanceof ParamValue) {
-
-                    }
-                }
-
-            }
-            args[i] = value;
-        }
+        Object[] args = collectArgs(webContext, router, routerMatcher);
 
         try {
             Method handleMethod = router.handleMethod;
@@ -204,6 +195,41 @@ public class RouterMap {
 
         return true;
 
+    }
+
+    private Object[] collectArgs(WebContext webContext, Router router, Matcher routerMatcher) {
+
+        Class<?>[] parameterTypes = router.handleMethod.getParameterTypes();
+        Annotation[][] parameterAnnotations = router.handleMethod.getParameterAnnotations();
+        Object[] args = new Object[parameterTypes.length];
+
+        for (int i = 0; i < parameterTypes.length; i++) {
+            Class<?> clazz = parameterTypes[i];
+            Object value = null;
+            if (clazz.isAssignableFrom(WebContext.class)) {
+                value = webContext;
+            } else {
+                Annotation[] annotations = parameterAnnotations[i];
+                if (annotations.length == 1) {
+                    if (annotations[0] instanceof PathValue) {
+                        String pathVar = routerMatcher.group(((PathValue) annotations[0]).value());
+                        value = TypeConvertUtils.convert(pathVar, clazz);
+                    } else if (annotations[0] instanceof ParamValue) {
+                        String name = ((ParamValue) annotations[0]).value();
+                        String paramValue = webContext.getRequest().queryParams(name);
+                        if (paramValue == null) {
+                            paramValue = webContext.getRequest().getParam(name);
+                        }
+                        value = TypeConvertUtils.convert(paramValue, clazz);
+                    } else if (annotations[0] instanceof BodyValue) {
+                        value = webContext.getRequest().getBodyAsBytes();
+                    }
+                }
+
+            }
+            args[i] = value;
+        }
+        return args;
     }
 
     private Method getHandleMethod(String handle) {
@@ -281,4 +307,45 @@ public class RouterMap {
     }
 
 
+    private class RouteParser {
+        final Set<String> keys = new HashSet<String>();
+        String route;
+        String routeRegex;
+
+        RouteParser(String route) {
+            this.route = route;
+        }
+
+        public RouteParser parse() {
+            //替换正则,消除对路由解析,如{3} {3,8}
+            final List<String> regexs = new ArrayList<String>(5);
+
+            route = StringUtils.replace(route, REGEX, new StringUtils.ReplacementHandler() {
+                @Override
+                public String doReplace(Matcher matcher) {
+                    regexs.add(matcher.group(1));
+                    return "#REGEX_FLAG#";
+                }
+            });
+
+
+            routeRegex = StringUtils.replace(route, KEY_PATTERN, new StringUtils.ReplacementHandler() {
+                @Override
+                public String doReplace(Matcher matcher) {
+                    keys.add(matcher.group(1));
+                    return "(?<" + matcher.group(1) + ">" + (matcher.group(3) == null ? "[^/]+" : matcher.group(3)) + ")";
+                }
+            });
+
+            routeRegex = StringUtils.replace(routeRegex, REGEX_FLAG, new StringUtils.ReplacementHandler() {
+                int index = 0;
+
+                @Override
+                public String doReplace(Matcher matcher) {
+                    return regexs.get(index++);
+                }
+            });
+            return this;
+        }
+    }
 }
