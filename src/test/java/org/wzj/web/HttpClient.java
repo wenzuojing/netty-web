@@ -8,7 +8,7 @@ import java.util.Map;
 /**
  * 简单易容 http client
  * 无第三方依赖,支持链式操作
- * <p/>
+ * <p>
  * Created by wens on 15-5-20.
  */
 public class HttpClient {

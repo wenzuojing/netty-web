@@ -16,7 +16,7 @@
  */
 package org.wzj.web.imp;
 
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.DefaultFileRegion;
@@ -48,7 +48,7 @@ public class ResponseImp implements Response {
 
     private boolean finish = false;
     private boolean writeHeader = false;
-    private boolean hasBodyData = false;
+    private long contentLength = 0;
 
     public ResponseImp(ChannelHandlerContext ctx, HttpResponse response) {
         this.ctx = ctx;
@@ -73,12 +73,17 @@ public class ResponseImp implements Response {
 
     @Override
     public void writeBody(String body) {
-        writeBody0(Unpooled.wrappedBuffer(body.getBytes()));
+
+        writeBody(body.getBytes());
+
     }
 
     @Override
     public void writeBody(byte[] body) {
-        writeBody0(Unpooled.wrappedBuffer(body));
+        contentLength += body.length;
+        ByteBuf byteBuf = ctx.alloc().directBuffer(body.length);
+        byteBuf.writeBytes(body);
+        writeBody0(byteBuf);
     }
 
     @Override
@@ -92,13 +97,14 @@ public class ResponseImp implements Response {
 
         long fileLength = file.length();
 
+        contentLength += fileLength;
+
         writeBody0(new DefaultFileRegion(raf.getChannel(), 0, fileLength));
 
     }
 
     private synchronized void writeBody0(Object body) {
         checkStatus();
-        hasBodyData = true;
         if (!writeHeader) {
             writeHeader();
         }
@@ -108,11 +114,7 @@ public class ResponseImp implements Response {
     private void writeHeader() {
         writeHeader = true;
         if (!response.headers().contains(HttpHeaders.Names.CONTENT_LENGTH)) {
-            if (hasBodyData) {
-                response.headers().set(HttpHeaders.Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED);
-            } else {
-                setContentLength(0);
-            }
+            setContentLength(contentLength);
         }
         ctx.write(response);
     }

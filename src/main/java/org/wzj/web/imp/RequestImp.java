@@ -58,44 +58,32 @@ public class RequestImp implements Request {
     public RequestImp(ChannelHandlerContext ctx, FullHttpRequest httpRequest) {
         this.ctx = ctx;
         this.httpRequest = httpRequest;
+        parseParams();
+        readBody();
     }
 
     @Override
     public Map<String, List<String>> getParams() {
-        if (params == null) {
-            readParams();
-        }
-
         return Collections.unmodifiableMap(params);
     }
 
     @Override
     public List<String> getParams(String name) {
-        if (params == null) {
-            readParams();
-        }
         return params.get(name);
     }
 
     @Override
     public String getParam(String name) {
-        if (params == null) {
-            readParams();
-        }
         List<String> values = params.get(name);
         return values == null || values.size() == 0 ? null : values.get(0);
     }
 
     @Override
     public FileItem getFile(String name) {
-        if (params == null) {
-            readParams();
-        }
-
         return files.get(name);
     }
 
-    private void readParams() {
+    private void parseParams() {
         PostFormDataDecoder postFormDataDecoder = null;
         try {
             postFormDataDecoder = new PostFormDataDecoder(httpRequest);
@@ -151,17 +139,13 @@ public class RequestImp implements Request {
 
     @Override
     public String getBodyAsString() {
-        if (bodyString == null) {
-            readBody();
-        }
+
         return bodyString;
     }
 
     @Override
     public byte[] getBodyAsBytes() {
-        if (bodyBytes == null) {
-            readBody();
-        }
+
         return bodyBytes;
     }
 

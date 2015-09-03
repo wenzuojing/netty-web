@@ -4,10 +4,7 @@ import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.multipart.*;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Created by wens on 15-5-18.
@@ -42,6 +39,13 @@ public class PostFormDataDecoder {
             decoder = new HttpPostRequestDecoder(factory, httpRequest);
             readData();
         } catch (Exception e) {
+
+            if ("No Body to decode".equals(e.getMessage())) {
+                this.params = Collections.EMPTY_MAP;
+                this.files = Collections.EMPTY_MAP;
+                return;
+            }
+
             throw new WebException(e);
         }
 

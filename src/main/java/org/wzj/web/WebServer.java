@@ -8,7 +8,6 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.util.CharsetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +49,7 @@ public class WebServer {
         this.addRoute(route, HttpMethod.GET.name(), "org.wzj.web.StaticSource.servingStaticFile");
         this.addRoute(route, HttpMethod.HEAD.name(), "org.wzj.web.StaticSource.servingStaticFile");
 
+
     }
 
     private void addRoute(String route, String method, String handle) {
@@ -65,11 +65,16 @@ public class WebServer {
 
             try {
                 ServerBootstrap b = new ServerBootstrap();
-                b.option(ChannelOption.SO_BACKLOG, 1024);
+                b.option(ChannelOption.SO_BACKLOG, 100);
+                b.option(ChannelOption.SO_RCVBUF, 128);
+                b.option(ChannelOption.SO_SNDBUF, 128);
+                b.option(ChannelOption.TCP_NODELAY, false);
+                b.option(ChannelOption.SO_KEEPALIVE, true);
                 b.group(bossGroup, workerGroup)
                         .channel(NioServerSocketChannel.class)
                                 //.handler(new LoggingHandler(LogLevel.INFO))
                         .childHandler(new ServerHandlerInitializer(null));
+
 
                 Channel ch = b.bind(this.serverConfig.getPort()).sync().channel();
                 ch.closeFuture().sync();
@@ -98,19 +103,20 @@ public class WebServer {
 
         HttpResponse httpResponse = new DefaultHttpResponse(HTTP_1_1, OK);
         httpResponse.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain");
-        boolean keepAlive = HttpHeaders.isKeepAlive(httpRequest);
+        final boolean keepAlive = HttpHeaders.isKeepAlive(httpRequest);
         if (keepAlive) {
             httpResponse.headers().set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
         }
 
 
-        String method = httpRequest.getMethod().name();
+        final String method = httpRequest.getMethod().name();
 
-        String uri = httpRequest.getUri();
+        final String uri = httpRequest.getUri();
 
-        RequestImp request = new RequestImp(ctx, httpRequest);
-        ResponseImp response = new ResponseImp(ctx, httpResponse);
-        WebContext webContext = new WebContext(request, response);
+        final RequestImp request = new RequestImp(ctx, httpRequest);
+        final ResponseImp response = new ResponseImp(ctx, httpResponse);
+        final WebContext webContext = new WebContext(request, response);
+
 
         try {
             if (!routerHandle(method, uri, webContext)) {
@@ -124,8 +130,6 @@ public class WebServer {
         if (!response.hasFinish()) {
             response.finish(keepAlive);
         }
-
-        log.info(request + " " + response);
 
     }
 
@@ -154,8 +158,7 @@ public class WebServer {
             }
             p.addLast(new HttpServerCodec());
             p.addLast(new HttpObjectAggregator(65536));
-            p.addLast(new ChunkedWriteHandler());
-            p.addLast(new HttpContentCompressor());
+
             p.addLast(new ServerHandler());
         }
     }
@@ -163,13 +166,12 @@ public class WebServer {
     private class ServerHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
         @Override
-        protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest req) throws Exception {
+        protected void channelRead0(final ChannelHandlerContext ctx, final FullHttpRequest req) throws Exception {
 
             if (!req.getDecoderResult().isSuccess()) {
                 sendError(ctx, BAD_REQUEST);
                 return;
             }
-
             process(ctx, req);
         }
 
@@ -189,7 +191,6 @@ public class WebServer {
                     HTTP_1_1, status, Unpooled.copiedBuffer("Failure: " + status + "\r\n", CharsetUtil.UTF_8));
             response.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8");
 
-            // Close the connection as soon as the error message is sent.
             ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
         }
     }
