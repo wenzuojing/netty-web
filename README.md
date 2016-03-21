@@ -45,7 +45,7 @@ public class Helloworld {
         ServerConfig serverConfig = new ServerConfig();
         serverConfig.setPort(7777);
         WebServer webServer = new WebServer(serverConfig);
-        webServer.scanRouters("com.gone.netty.web.example");
+        webServer.scanRouters("com.github.wens.netty.web.example");
         webServer.run();
     }
 
